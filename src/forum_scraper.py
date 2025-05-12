@@ -32,13 +32,14 @@ class ForumPost:
     date: str
 
 class MoodleForumScraper:
-    def __init__(self, base_url: str, moodle_session: str):
+    def __init__(self, base_url: str, moodle_session: str, author_to_track: str = ""):
         """
         Initialize the forum scraper
         
         Args:
             base_url: The base URL of the Moodle forum
             moodle_session: The MoodleSession cookie value
+            author_to_track: The name of the author to track (will be shown as 'User', others as 'Developer')
         """
         self.base_url = base_url
         self.session = requests.Session()
@@ -46,8 +47,23 @@ class MoodleForumScraper:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+        self.author_to_track = author_to_track
         logging.info(f"Initialized scraper for URL: {base_url}")
         logging.info("Cookie and headers set")
+
+    def process_author(self, author_name: str) -> str:
+        """
+        Process the author name according to tracking rules
+        
+        Args:
+            author_name: The original author name
+            
+        Returns:
+            'User' if author matches tracked name, 'Developer' otherwise
+        """
+        if self.author_to_track and author_name.strip() == self.author_to_track.strip():
+            return "User"
+        return "Developer"
 
     def get_page_content(self, url: str) -> Optional[BeautifulSoup]:
         """
@@ -137,10 +153,13 @@ class MoodleForumScraper:
                     date = header.select_one('time')
                     
                     if all([title, author_link, date, post_content]):
+                        original_author = author_link.get_text(strip=True)
+                        processed_author = self.process_author(original_author)
+                        
                         post = ForumPost(
                             title=title.get_text(strip=True),
                             content=post_content.get_text(strip=True),
-                            author=author_link.get_text(strip=True),
+                            author=processed_author,
                             date=date.get('datetime', '')
                         )
                         # Log the scraped post to console
@@ -233,6 +252,7 @@ def main():
     Keyboard interrupt (Ctrl+C) can be used to stop the scraping process.
     """
     try:
+        author_to_track = input("Enter the author name to track (or press Enter to track none): ")
         moodle_session = input("Enter your MoodleSession cookie value: ")
         if not moodle_session:
             logging.error("MoodleSession cookie is required")
@@ -240,18 +260,18 @@ def main():
 
         output_file = os.getenv('OUT_FILE', DEFAULT_OUTPUT_FILE)
         all_discussions = {}
-
+        
         while True:
             forum_url = input("Enter the Moodle forum URL (or press Enter to finish): ")
-            if not forum_url:  # Empty input means we're done
+            if not forum_url:
                 break
-
+                
             if not forum_url.startswith(('http://', 'https://')):
                 logging.error("Invalid URL. Please enter a complete URL starting with http:// or https://")
                 continue
-
+            
             logging.info(f"Starting forum scraping for URL: {forum_url}")
-            scraper = MoodleForumScraper(forum_url, moodle_session)
+            scraper = MoodleForumScraper(forum_url, moodle_session, author_to_track)
             discussions = scraper.scrape_forum()
 
             if not discussions:
@@ -263,13 +283,13 @@ def main():
                 continue
 
             all_discussions.update(discussions)
-
+            
         if not all_discussions:
             logging.error("No discussions were scraped from any forum")
             return
 
         # Save all discussions to a single file
-        scraper = MoodleForumScraper("", moodle_session)  # Create a scraper instance just for saving
+        scraper = MoodleForumScraper("", moodle_session, author_to_track)  # Create a scraper instance just for saving
         scraper.save_to_file(all_discussions, output_file)
         
         logging.info(f"Total discussions scraped: {len(all_discussions)}")
