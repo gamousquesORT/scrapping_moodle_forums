@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import logging
 import time
+import os
+from pathlib import Path
 from dataclasses import dataclass
 
 # Configure logging
@@ -15,6 +17,12 @@ logging.basicConfig(
         logging.FileHandler('scraper.log', encoding='utf-8')
     ]
 )
+
+# Get output path from environment variable or use default
+DEFAULT_OUTPUT_FILE = "foro_exportado.txt"
+OUTPUT_DIR = Path(__file__).parent.parent / "outputdata"
+# Create output directory if it doesn't exist
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 @dataclass
 class ForumPost:
@@ -192,7 +200,8 @@ class MoodleForumScraper:
             discussions: Dictionary of discussion URLs and their posts
             output_file: Path to the output file
         """
-        with open(output_file, 'w', encoding='utf-8') as f:
+        output_path = OUTPUT_DIR / output_file
+        with open(output_path, 'w', encoding='utf-8') as f:
             for url, posts in discussions.items():
                 f.write(f"\n{'='*80}\n")
                 f.write(f"Discussion URL: {url}\n")
@@ -204,37 +213,67 @@ class MoodleForumScraper:
                     f.write(f"Date: {post.date}\n")
                     f.write(f"Content:\n{post.content}\n")
                     f.write(f"\n{'-'*40}\n\n")
+        logging.info(f"Forum content has been saved to {output_path}")
 
 def main():
+    """
+    Main entry point for the Moodle forum scraper.
+    
+    This function:
+    1. Prompts for a MoodleSession cookie value
+    2. Allows the user to input multiple Moodle forum URLs
+    3. Scrapes all discussions and posts from each forum
+    4. Combines all content into a single output file
+    5. Shows statistics about total discussions and posts scraped
+    
+    The output file location is determined by:
+    - The OUT_FILE environment variable if set
+    - The DEFAULT_OUTPUT_FILE value if not set
+    
+    Keyboard interrupt (Ctrl+C) can be used to stop the scraping process.
+    """
     try:
-        forum_url = input("Enter the Moodle forum URL: ")
         moodle_session = input("Enter your MoodleSession cookie value: ")
-        output_file = "foro_exportado.txt"
-
-        if not forum_url.startswith(('http://', 'https://')):
-            logging.error("Invalid URL. Please enter a complete URL starting with http:// or https://")
-            return
-
         if not moodle_session:
             logging.error("MoodleSession cookie is required")
             return
 
-        logging.info("Starting forum scraping...")
-        scraper = MoodleForumScraper(forum_url, moodle_session)
-        discussions = scraper.scrape_forum()
+        output_file = os.getenv('OUT_FILE', DEFAULT_OUTPUT_FILE)
+        all_discussions = {}
 
-        if not discussions:
-            logging.error("No discussions were found. This could mean:")
-            logging.error("1. The MoodleSession cookie is invalid or expired")
-            logging.error("2. The URL is not a valid Moodle forum")
-            logging.error("3. The forum is empty")
-            logging.error("4. The forum requires additional permissions")
+        while True:
+            forum_url = input("Enter the Moodle forum URL (or press Enter to finish): ")
+            if not forum_url:  # Empty input means we're done
+                break
+
+            if not forum_url.startswith(('http://', 'https://')):
+                logging.error("Invalid URL. Please enter a complete URL starting with http:// or https://")
+                continue
+
+            logging.info(f"Starting forum scraping for URL: {forum_url}")
+            scraper = MoodleForumScraper(forum_url, moodle_session)
+            discussions = scraper.scrape_forum()
+
+            if not discussions:
+                logging.error(f"No discussions were found for {forum_url}. This could mean:")
+                logging.error("1. The MoodleSession cookie is invalid or expired")
+                logging.error("2. The URL is not a valid Moodle forum")
+                logging.error("3. The forum is empty")
+                logging.error("4. The forum requires additional permissions")
+                continue
+
+            all_discussions.update(discussions)
+
+        if not all_discussions:
+            logging.error("No discussions were scraped from any forum")
             return
 
-        scraper.save_to_file(discussions, output_file)
-        logging.info(f"Forum content has been saved to {output_file}")
-        logging.info(f"Total discussions scraped: {len(discussions)}")
-        total_posts = sum(len(posts) for posts in discussions.values())
+        # Save all discussions to a single file
+        scraper = MoodleForumScraper("", moodle_session)  # Create a scraper instance just for saving
+        scraper.save_to_file(all_discussions, output_file)
+        
+        logging.info(f"Total discussions scraped: {len(all_discussions)}")
+        total_posts = sum(len(posts) for posts in all_discussions.values())
         logging.info(f"Total posts scraped: {total_posts}")
 
     except KeyboardInterrupt:
