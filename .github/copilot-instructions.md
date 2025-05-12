@@ -10,8 +10,9 @@ follow python PEP guidelines
 
 use type declaration for functions return and parameters
 
-
 **Test Generatios instructions**
+
+generate test when user requests t
 
 name tests using the format Should{expected result}Given{input data or action} where the words in {} depend on each test
 
